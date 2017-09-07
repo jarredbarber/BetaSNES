@@ -10,7 +10,8 @@ class BetaNES:
         Initializes the optimizer with a maximum entropy distribution.
         '''
         # Distribution parameters
-        self.theta = np.ones(Nparams,2,dtype=dtype)
+        self.a = np.ones(Nparams,dtype=dtype)
+        self.b = np.ones(Nparams,dtype=dtype)
         
         # Optimization parameters
         self.popsize = int(4+3*np.log(Nparams)) # Population size (from CMA-ES)
@@ -25,16 +26,31 @@ class BetaNES:
         '''
         return [np.random.beta(self.theta[:,0],self.theta[:,1]) for ii in range(self.popsize)]
 
-    def tell(self,X,f):
+    def tell(self,X,fit):
         '''Updates the model parameters with the function values.
         '''
-        f = self.utility(f) # Map to utility values
-        # Compute information gradients
-        #TODO
-        # Compute the Riemannian metric
-        #TODO
+        fit = self.utility(fit) # Map to utility values
+        # Compute information differentials
+        p0a  = pg(0,self.a)
+        p0b  = pg(0,self.b)
+        p0ab = pg(0,self.a+self.b)
+
+        p1a  = pg(1,self.a)
+        p1b  = pg(1,self.b)
+        p1ab = pg(1,self.a+self.b)
+       
+        N = len(X)
+        dA = p0ab - p0a + sum([f*np.log(x) for x,f in zip(X,fit)])/N
+        dB = p0ab - p0b + sum([f*np.log(1-x) for x,f in zip(X,fit)])/N
+
+        # Compute the Riemannian metric and raise the derivatives
+        gdet = p1a*p1b - p1ab*(p1a+p1b)
+        gA = ((p1b - p1ab)*dA + p1ab*dB)/(self.a*gdet)
+        gB = ((p1a - p1ab)*dB + p1ab*dA)/(self.b*gdet)
+        
         # Update parameters w/ exponential map
-        #TODO
+        self.a *= np.exp(self.step*gA)
+        self.b *= np.exp(self.step*gB)
 
     def stop(self):
         '''Predicate determining if we have hit our convergence criteria'''
@@ -42,21 +58,16 @@ class BetaNES:
 
     def mode(self):
         '''Mode of current distribution'''
-        a = self.params[:,0]
-        b = self.params[:,1]
-        return (a-1.0)/(a+b-2.0)
+        return (self.a-1.0)/(self.a+self.b-2.0)
 
     def mean(self):
         '''Mean of current distribution'''
-        a = self.params[:,0]
-        b = self.params[:,1]
-        return (a)/(a+b)
+        return self.a/(self.a+self.b)
 
     def var(self):
         '''Variance of current distribution (component wise)'''
-        a = self.params[:,0]
-        b = self.params[:,1]
-        return (a*b)/( (a+b)*(a+b)*(a+b+1) )
+        ab = self.a+self.b
+        return (self.a*self.b)/( ab*ab*(ab+1) )
 
     def std(self):
         '''Standard deviation (component wise)'''
